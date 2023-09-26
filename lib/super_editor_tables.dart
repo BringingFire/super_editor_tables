@@ -1,10 +1,13 @@
-import 'package:flutter/widgets.dart';
+import 'package:collection/collection.dart';
+import 'package:flutter/material.dart';
 import 'package:super_editor/super_editor.dart';
 
 const _superEditorBlockType = 'blockType';
 const tableRowAttribution = NamedAttribution('table');
 
-class TableRowNode extends DocumentNode with ChangeNotifier {
+class TableRowNode extends DocumentNode
+    with ChangeNotifier
+    implements TextNode {
   TableRowNode({
     required this.id,
     required this.columns,
@@ -19,46 +22,42 @@ class TableRowNode extends DocumentNode with ChangeNotifier {
 
   final List<AttributedText> columns;
 
-  AttributedText get text => columns.first;
+  @override
+  AttributedText get text =>
+      columns.reduce((value, element) => value.copyAndAppend(element));
 
   @override
-  TableRowNodePosition get beginningPosition => TableRowNodePosition(
-        index: 0,
-        position: const TextNodePosition(offset: 0),
-      );
+  set text(AttributedText newText) {
+    throw UnimplementedError('set text on row');
+  }
 
   @override
-  TableNodeSelection computeSelection({
+  TextNodePosition get beginningPosition => const TextNodePosition(offset: 0);
+
+  @override
+  TextNodeSelection computeSelection({
     required NodePosition base,
     required NodePosition extent,
   }) {
-    final baseTable = base as TableRowNodePosition;
-    final extentTable = extent as TableRowNodePosition;
-    assert(baseTable.index == extentTable.index);
+    final baseText = base as TextNodePosition;
+    final extentText = extent as TextNodePosition;
 
-    return TableNodeSelection(
-      index: baseTable.index,
-      selection: TextNodeSelection(
-        baseOffset: baseTable.position.offset,
-        extentOffset: extentTable.position.offset,
-        affinity: extentTable.position.affinity,
-      ),
+    return TextNodeSelection(
+      baseOffset: baseText.offset,
+      extentOffset: extentText.offset,
+      affinity: extentText.affinity,
     );
   }
 
   @override
   String copyContent(dynamic selection) {
-    assert(selection is TableNodeSelection);
-    return (selection as TableNodeSelection).selection!.textInside(text.text);
+    assert(selection is TextNodeSelection);
+    return (selection as TextNodeSelection).textInside(text.text);
   }
 
   @override
-  TableRowNodePosition get endPosition => TableRowNodePosition(
-        index: 1,
-        position: TextNodePosition(
-          offset: columns.last.text.length,
-          affinity: TextAffinity.upstream,
-        ),
+  TextNodePosition get endPosition => TextNodePosition(
+        offset: columns.map((c) => c.text.length).sum,
       );
 
   @override
@@ -66,20 +65,18 @@ class TableRowNode extends DocumentNode with ChangeNotifier {
     NodePosition position1,
     NodePosition position2,
   ) {
-    if (position1 is! TableRowNodePosition) {
+    if (position1 is! TextNodePosition) {
       throw Exception(
-        'Expected a TableNodePosition for position1 but received a ${position1.runtimeType}',
+        'Expected a TextNodePosition for position1 but received a ${position1.runtimeType}',
       );
     }
-    if (position2 is! TableRowNodePosition) {
+    if (position2 is! TextNodePosition) {
       throw Exception(
-        'Expected a TableNodePosition for position2 but received a ${position2.runtimeType}',
+        'Expected a TextNodePosition for position2 but received a ${position2.runtimeType}',
       );
     }
 
-    return position1.position.offset > position2.position.offset
-        ? position1
-        : position2;
+    return position1.offset > position2.offset ? position1 : position2;
   }
 
   @override
@@ -87,20 +84,47 @@ class TableRowNode extends DocumentNode with ChangeNotifier {
     NodePosition position1,
     NodePosition position2,
   ) {
-    if (position1 is! TableRowNodePosition) {
+    if (position1 is! TextNodePosition) {
       throw Exception(
-        'Expected a TableNodePosition for position1 but received a ${position1.runtimeType}',
+        'Expected a TextNodePosition for position1 but received a ${position1.runtimeType}',
       );
     }
-    if (position2 is! TableRowNodePosition) {
+    if (position2 is! TextNodePosition) {
       throw Exception(
-        'Expected a TableNodePosition for position2 but received a ${position2.runtimeType}',
+        'Expected a TextNodePosition for position2 but received a ${position2.runtimeType}',
       );
     }
 
-    return position1.position.offset < position2.position.offset
-        ? position1
-        : position2;
+    return position1.offset < position2.offset ? position1 : position2;
+  }
+
+  @override
+  DocumentPosition positionAt(int index) {
+    return DocumentPosition(
+      nodeId: id,
+      nodePosition: TextNodePosition(offset: index),
+    );
+  }
+
+  @override
+  DocumentRange rangeBetween(int startIndex, int endIndex) {
+    return DocumentRange(
+      start: positionAt(startIndex),
+      end: positionAt(endIndex),
+    );
+  }
+
+  @override
+  DocumentSelection selectionAt(int collapsedIndex) {
+    return DocumentSelection.collapsed(position: positionAt(collapsedIndex));
+  }
+
+  @override
+  DocumentSelection selectionBetween(int startIndex, int endIndex) {
+    return DocumentSelection(
+      base: positionAt(startIndex),
+      extent: positionAt(endIndex),
+    );
   }
 }
 
@@ -157,7 +181,7 @@ class TableRowComponent extends StatefulWidget {
 
   final TableStatus tableStatus;
   final List<AttributedText> columns;
-  final TableNodeSelection? selection;
+  final TextNodeSelection? selection;
   final AttributionStyleBuilder textStyleBuilder;
 
   @override
@@ -170,7 +194,7 @@ class _TableRowComponentState extends State<TableRowComponent>
 
   String getAllText() => widget.columns.first.text;
 
-  String get text => widget.columns.first.text;
+  int get fullLength => widget.columns.map((c) => c.length).sum;
 
   GlobalKey<_TableColumnState> columnAt(int index) => _childKeys[index];
 
@@ -205,47 +229,35 @@ class _TableRowComponentState extends State<TableRowComponent>
   }
 
   @override
-  TableRowNodePosition? getPositionAtOffset(Offset localOffset) {
-    final (index, childKey) =
+  TextNodePosition? getPositionAtOffset(Offset localOffset) {
+    final (_, childKey) =
         localOffset.dx < 400 ? (0, columnAt(0)) : (1, columnAt(1));
     final textPosition =
         childKey.currentState!.getPositionAtOffset(localOffset);
-    return TableRowNodePosition.fromTextPosition(
-      index,
-      textPosition! as TextNodePosition,
-    );
+    return textPosition! as TextNodePosition;
   }
 
   @override
-  TableRowNodePosition getBeginningPosition() {
-    return TableRowNodePosition(
-      index: 0,
-      position: const TextNodePosition(offset: 0),
-    );
+  TextNodePosition getBeginningPosition() {
+    return const TextNodePosition(offset: 0);
   }
 
   @override
-  TableRowNodePosition getBeginningPositionNearX(double x) {
-    return TableRowNodePosition.fromTextPosition(
-      0,
-      TextNodePosition.fromTextPosition(
-        columnAt(0).currentState!.getBeginningPositionNearX(x)
-            as TextNodePosition,
-      ),
-    );
+  TextNodePosition getBeginningPositionNearX(double x) {
+    return columnAt(0).currentState!.getBeginningPositionNearX(x)
+        as TextNodePosition;
   }
 
   @override
-  TableNodeSelection getCollapsedSelectionAt(NodePosition position) {
-    if (position is! TableRowNodePosition) {
+  TextNodeSelection getCollapsedSelectionAt(NodePosition position) {
+    if (position is! TextNodePosition) {
       throw Exception(
         'The given node position ($position) is not compatible with TableRowComponent',
       );
     }
 
-    return TableNodeSelection.collapsed(
-      index: position.index,
-      offset: position.position.offset,
+    return TextNodeSelection.collapsed(
+      offset: position.offset,
     );
   }
 
@@ -256,43 +268,76 @@ class _TableRowComponentState extends State<TableRowComponent>
   }
 
   @override
-  TableRowNodePosition getEndPosition() {
-    return TableRowNodePosition(
-      index: 1,
-      position: TextNodePosition(offset: widget.columns.last.text.length),
+  TextNodePosition getEndPosition() {
+    return TextNodePosition(
+      offset: widget.columns.map((c) => c.length).sum,
+      affinity: TextAffinity.upstream,
     );
   }
 
   @override
-  TableRowNodePosition getEndPositionNearX(double x) {
-    return TableRowNodePosition(
-      index: 1,
-      position: _childKeys.last.currentState!.getEndPositionNearX(x)
-          as TextNodePosition,
-    );
+  TextNodePosition getEndPositionNearX(double x) {
+    final offset =
+        widget.columns.take(widget.columns.length - 1).map((c) => c.length).sum;
+    final childPosition = _childKeys.last.currentState!.getEndPositionNearX(x)
+        as TextNodePosition;
+    return childPosition.copyWith(offset: childPosition.offset + offset);
   }
 
   @override
   Offset getOffsetForPosition(dynamic nodePosition) {
-    if (nodePosition is! TableRowNodePosition) {
+    if (nodePosition is! TextNodePosition) {
       throw Exception(
         'Expected nodePosition of type TableNodePosition but received: $nodePosition',
       );
     }
-    final childKey = columnAt(nodePosition.index);
-    return childKey.currentState!.getOffsetForPosition(nodePosition.position);
+    final column = _columnFromOffset(nodePosition.offset);
+    final childKey = columnAt(column);
+    final baseOffset = _offsetForColumn(column);
+    final adjustedPosition =
+        nodePosition.copyWith(offset: nodePosition.offset - baseOffset);
+    return childKey.currentState!.getOffsetForPosition(adjustedPosition);
+  }
+
+  (int, TextNodePosition) _childWithPosition(TextNodePosition position) {
+    final column = _columnFromOffset(position.offset);
+    final baseOffset = _offsetForColumn(column);
+    final childPosition = position.copyWith(
+      offset: position.offset - baseOffset,
+    );
+    return (column, childPosition);
+  }
+
+  int _columnFromOffset(int offset) {
+    var remainingChars = offset;
+    for (var i = 0; i < widget.columns.length; i++) {
+      remainingChars -= widget.columns[i].length;
+      if (remainingChars < 1) return i;
+    }
+    return widget.columns.length - 1;
+  }
+
+  int _offsetForColumn(int column) {
+    return widget.columns.indexed
+        .takeWhile((v) => v.$1 < column)
+        .map((v) => v.$2.length)
+        .sum;
   }
 
   @override
   Rect getRectForPosition(NodePosition nodePosition) {
-    if (nodePosition is! TableRowNodePosition) {
+    if (nodePosition is! TextNodePosition) {
       throw Exception(
         'Expected nodePosition of type TableNodePosition but received: $nodePosition',
       );
     }
-    final childKey = columnAt(nodePosition.index);
-    final childPosition =
-        childKey.currentState!.getRectForPosition(nodePosition.position);
+    final column = _columnFromOffset(nodePosition.offset);
+    final childKey = columnAt(column);
+    final childPosition = childKey.currentState!.getRectForPosition(
+      TextNodePosition(
+        offset: nodePosition.offset - _offsetForColumn(column),
+      ),
+    );
     final myBox = context.findRenderObject()! as RenderBox;
     final childBox = childKey.currentContext!.findRenderObject()! as RenderBox;
     final childOffset = childBox.localToGlobal(Offset.zero, ancestor: myBox);
@@ -305,53 +350,59 @@ class _TableRowComponentState extends State<TableRowComponent>
     dynamic extentNodePosition,
   ) {
     // TODO: implement cross-node selection
-    if (baseNodePosition is! TableRowNodePosition) {
+    if (baseNodePosition is! TextNodePosition) {
       throw Exception(
         'Expected nodePosition of type TableNodePosition but received: $baseNodePosition',
       );
     }
-    if (extentNodePosition is! TableRowNodePosition) {
+    if (extentNodePosition is! TextNodePosition) {
       throw Exception(
         'Expected nodePosition of type TableNodePosition but received: $extentNodePosition',
       );
     }
-    assert(baseNodePosition.index == extentNodePosition.index);
+    final baseColumn = _columnFromOffset(baseNodePosition.offset);
+    final extentColumn = _columnFromOffset(extentNodePosition.offset);
+    assert(baseColumn == extentColumn);
 
-    final childKey = columnAt(extentNodePosition.index);
+    final childKey = columnAt(baseColumn);
     return childKey.currentState!.getRectForSelection(
-      baseNodePosition.position,
-      extentNodePosition.position,
-    );
-  }
-
-  @override
-  TableNodeSelection getSelectionBetween({
-    required NodePosition basePosition,
-    required NodePosition extentPosition,
-  }) {
-    if (basePosition is! TableRowNodePosition) {
-      throw Exception(
-        'Expected a basePosition of type TableNodePosition but received: $basePosition',
-      );
-    }
-    if (extentPosition is! TableRowNodePosition) {
-      throw Exception(
-        'Expected an extentPosition of type TableNodePosition but received: $extentPosition',
-      );
-    }
-    assert(basePosition.index == extentPosition.index);
-    return TableNodeSelection(
-      index: basePosition.index,
-      selection: TextNodeSelection(
-        baseOffset: basePosition.position.offset,
-        extentOffset: extentPosition.position.offset,
-        affinity: extentPosition.position.affinity,
+      baseNodePosition.copyWith(
+        offset: baseNodePosition.offset - _offsetForColumn(baseColumn),
+      ),
+      extentNodePosition.copyWith(
+        offset: extentNodePosition.offset - _offsetForColumn(extentColumn),
       ),
     );
   }
 
   @override
-  TableNodeSelection getSelectionInRange(
+  TextNodeSelection getSelectionBetween({
+    required NodePosition basePosition,
+    required NodePosition extentPosition,
+  }) {
+    if (basePosition is! TextNodePosition) {
+      throw Exception(
+        'Expected a basePosition of type TableNodePosition but received: $basePosition',
+      );
+    }
+    if (extentPosition is! TextNodePosition) {
+      throw Exception(
+        'Expected an extentPosition of type TableNodePosition but received: $extentPosition',
+      );
+    }
+    final baseColumn = _columnFromOffset(basePosition.offset);
+    final extentColumn = _columnFromOffset(extentPosition.offset);
+    assert(baseColumn == extentColumn);
+
+    return TextNodeSelection(
+      baseOffset: basePosition.offset,
+      extentOffset: extentPosition.offset,
+      affinity: extentPosition.affinity,
+    );
+  }
+
+  @override
+  TextNodeSelection getSelectionInRange(
     Offset localBaseOffset,
     Offset localExtentOffset,
   ) {
@@ -359,152 +410,129 @@ class _TableRowComponentState extends State<TableRowComponent>
   }
 
   @override
-  TableNodeSelection getSelectionOfEverything() {
-    final selection = TextNodeSelection(
+  TextNodeSelection getSelectionOfEverything() {
+    return TextNodeSelection(
       baseOffset: 0,
-      extentOffset: text.length,
-    );
-    return TableNodeSelection(
-      index: 0,
-      selection: selection,
+      extentOffset: widget.columns.map((c) => c.length).sum,
     );
   }
 
-  TableRowNodePosition? getPositionOneLineDown(NodePosition position) {
-    if (position is! TableRowNodePosition) {
+  TextNodePosition? getPositionOneLineDown(NodePosition position) {
+    if (position is! TextNodePosition) {
       throw Exception(
         'Expected position of type TableNodePosition but received ${position.runtimeType}',
       );
     }
-    final lineDownPos = columnAt(position.index)
-        .currentState!
-        .getPositionOneLineDown(position.position);
-    if (lineDownPos == null) return null;
-    return TableRowNodePosition(
-      index: position.index,
-      position: lineDownPos,
-    );
+    final (column, childPosition) = _childWithPosition(position);
+    final lineDownPos =
+        columnAt(column).currentState!.getPositionOneLineDown(childPosition);
+    return lineDownPos;
   }
 
   @override
-  TableRowNodePosition? movePositionDown(NodePosition textNodePosition) {
-    if (textNodePosition is! TableRowNodePosition) {
+  TextNodePosition? movePositionDown(NodePosition textNodePosition) {
+    if (textNodePosition is! TextNodePosition) {
       // We don't know how to interpret a non-text position.
       return null;
     }
 
-    if (textNodePosition.position.offset < 0 ||
-        textNodePosition.position.offset > text.length) {
+    if (textNodePosition.offset < 0 || textNodePosition.offset > fullLength) {
       // This text position does not represent a position within our text.
       return null;
     }
 
     final positionOneLineDown = getPositionOneLineDown(textNodePosition);
-    if (positionOneLineDown == null) {
-      return null;
-    }
-    return TableRowNodePosition.fromTextPosition(
-      positionOneLineDown.index,
-      positionOneLineDown.position,
-    );
+    return positionOneLineDown;
   }
 
-  TableRowNodePosition getPositionAtStartOfLine(
-    TableRowNodePosition position,
+  TextNodePosition getPositionAtStartOfLine(
+    TextNodePosition position,
   ) {
-    final childKey = columnAt(position.index);
-    return TableRowNodePosition(
-      index: position.index,
-      position:
-          childKey.currentState!.getPositionAtStartOfLine(position.position),
-    );
+    final (column, childPosition) = _childWithPosition(position);
+    final childKey = columnAt(column);
+    final baseOffset = _offsetForColumn(column);
+    final result =
+        childKey.currentState!.getPositionAtStartOfLine(childPosition);
+    return result.copyWith(offset: result.offset + baseOffset);
   }
 
   @override
-  TableRowNodePosition? movePositionLeft(
+  TextNodePosition? movePositionLeft(
     NodePosition position, [
     MovementModifier? movementModifier,
   ]) {
-    if (position is! TableRowNodePosition) {
+    if (position is! TextNodePosition) {
       return null;
     }
 
-    final childKey = columnAt(position.index);
+    final (column, childPosition) = _childWithPosition(position);
+    final childKey = columnAt(column);
     final newPosition = childKey.currentState!.movePositionLeft(
-      position.position,
+      childPosition,
       movementModifier,
     ) as TextNodePosition?;
-    if (newPosition == null && position.index > 0) {
-      final newIndex = position.index - 1;
+    if (newPosition == null && column > 0) {
+      final newIndex = column - 1;
       final endPosition =
           columnAt(newIndex).currentState!.getEndPosition() as TextNodePosition;
-      return TableRowNodePosition(
-        index: newIndex,
-        position: endPosition,
+      return endPosition.copyWith(
+        offset: endPosition.offset + _offsetForColumn(newIndex),
       );
     }
-    return newPosition == null
-        ? null
-        : TableRowNodePosition(index: position.index, position: newPosition);
+    return newPosition == null ? null : newPosition + _offsetForColumn(column);
   }
 
-  TableRowNodePosition getPositionAtEndOfLine(TableRowNodePosition position) {
-    final childKey = columnAt(position.index);
-    return TableRowNodePosition(
-      index: position.index,
-      position: TextNodePosition.fromTextPosition(
-        childKey.currentState!.getPositionAtEndOfLine(position.position),
-      ),
-    );
+  TextNodePosition getPositionAtEndOfLine(TextNodePosition position) {
+    final (column, childPosition) = _childWithPosition(position);
+    final childKey = columnAt(column);
+    final newPosition =
+        childKey.currentState!.getPositionAtEndOfLine(childPosition);
+    return newPosition + _offsetForColumn(column);
   }
 
   @override
-  TableRowNodePosition? movePositionRight(
+  TextNodePosition? movePositionRight(
     NodePosition position, [
     MovementModifier? movementModifier,
   ]) {
-    if (position is! TableRowNodePosition) {
+    if (position is! TextNodePosition) {
       return null;
     }
 
-    final childKey = columnAt(position.index);
+    final (column, childPosition) = _childWithPosition(position);
+    final childKey = columnAt(column);
     final newPosition = childKey.currentState!.movePositionRight(
-      position.position,
+      childPosition,
       movementModifier,
     ) as TextNodePosition?;
-    if (newPosition == null && position.index < 1) {
-      return TableRowNodePosition(
-        index: 1,
-        position: const TextNodePosition(offset: 0),
-      );
+    if (newPosition == null && column < widget.columns.length - 1) {
+      return TextNodePosition(offset: _offsetForColumn(column + 1) + 1);
     }
-    return newPosition == null
-        ? null
-        : TableRowNodePosition(index: position.index, position: newPosition);
+    return newPosition == null ? null : newPosition + _offsetForColumn(column);
   }
 
-  TableRowNodePosition? getPositionOneLineUp(NodePosition position) {
-    if (position is! TableRowNodePosition) {
+  TextNodePosition? getPositionOneLineUp(NodePosition position) {
+    if (position is! TextNodePosition) {
       throw Exception(
         'Expected position of type TableNodePosition but received ${position.runtimeType}',
       );
     }
-    final childKey = columnAt(position.index);
+    final (column, childPosition) = _childWithPosition(position);
+    final childKey = columnAt(column);
     final newPosition =
-        childKey.currentState!.getPositionOneLineUp(position.position);
+        childKey.currentState!.getPositionOneLineUp(childPosition);
     if (newPosition == null) return null;
-    return TableRowNodePosition(index: position.index, position: newPosition);
+    return newPosition + _offsetForColumn(column);
   }
 
   @override
-  TableRowNodePosition? movePositionUp(NodePosition textNodePosition) {
-    if (textNodePosition is! TableRowNodePosition) {
+  TextNodePosition? movePositionUp(NodePosition textNodePosition) {
+    if (textNodePosition is! TextNodePosition) {
       // We don't know how to interpret a non-text position.
       return null;
     }
 
-    if (textNodePosition.position.offset < 0 ||
-        textNodePosition.position.offset > text.length) {
+    if (textNodePosition.offset < 0 || textNodePosition.offset > fullLength) {
       // This text position does not represent a position within our text.
       return null;
     }
@@ -514,6 +542,10 @@ class _TableRowComponentState extends State<TableRowComponent>
 
   @override
   Widget build(BuildContext context) {
+    final childSelection = switch (widget.selection) {
+      final sel? => _childWithPosition(sel.base),
+      _ => null,
+    };
     return Row(
       children: [
         for (final (index, text) in widget.columns.indexed)
@@ -522,8 +554,8 @@ class _TableRowComponentState extends State<TableRowComponent>
             isFirst: widget.tableStatus.isFirst,
             text: text,
             textStyleBuilder: widget.textStyleBuilder,
-            selection: widget.selection?.index == index
-                ? widget.selection!.selection
+            selection: childSelection?.$1 == index
+                ? TextSelection.collapsed(offset: childSelection!.$2.offset)
                 : null,
           ),
       ],
@@ -579,59 +611,15 @@ class _TableColumnState extends State<TableColumn>
       child: TextComponent(
         key: _childTextComponentKey,
         text: widget.text,
-        textStyleBuilder: widget.textStyleBuilder,
+        textStyleBuilder: (attrs) => widget.textStyleBuilder(attrs).copyWith(
+              color: Colors.red,
+              fontSize: 24,
+            ),
         textSelection: widget.selection,
         showDebugPaint: false,
       ),
     );
   }
-}
-
-class TableRowNodePosition extends NodePosition {
-  TableRowNodePosition({required this.index, required this.position});
-
-  final int index;
-  final TextNodePosition position;
-
-  static TableRowNodePosition fromTextPosition(
-      int index, TextPosition position) {
-    return TableRowNodePosition(
-      index: index,
-      position: TextNodePosition.fromTextPosition(position),
-    );
-  }
-}
-
-class TableNodeSelection extends NodeSelection {
-  TableNodeSelection({
-    required this.index,
-    required this.selection,
-  });
-
-  final int index;
-  final TextNodeSelection? selection;
-
-  static TableNodeSelection fromTextSelection(
-    int index,
-    TextSelection textSelection,
-  ) =>
-      TableNodeSelection(
-        index: index,
-        selection: TextNodeSelection.fromTextSelection(textSelection),
-      );
-
-  static TableNodeSelection collapsed({
-    required int index,
-    required int offset,
-    TextAffinity affinity = TextAffinity.downstream,
-  }) =>
-      TableNodeSelection(
-        index: index,
-        selection: TextNodeSelection.collapsed(
-          offset: offset,
-          affinity: affinity,
-        ),
-      );
 }
 
 class TableComponentViewModel extends SingleColumnLayoutComponentViewModel {
@@ -649,7 +637,7 @@ class TableComponentViewModel extends SingleColumnLayoutComponentViewModel {
   TableStatus tableStatus;
   Attribution? blockType;
   List<AttributedText> columns;
-  TableNodeSelection? selection;
+  TextNodeSelection? selection;
   AttributionStyleBuilder textStyleBuilder;
 
   @override
@@ -736,4 +724,15 @@ class TableConversionReaction extends ParagraphPrefixConversionReaction {
       ),
     ]);
   }
+}
+
+extension _ModifyOffset on TextNodePosition {
+  operator +(int mod) => copyWith(
+        offset: offset + mod,
+        affinity: TextAffinity.downstream,
+      );
+  operator -(int mod) => copyWith(
+        offset: offset - mod,
+        affinity: TextAffinity.upstream,
+      );
 }

@@ -44,8 +44,8 @@ class _MyHomePageState extends State<MyHomePage> {
         TableRowNode(
           id: Editor.createNodeId(),
           columns: [
-            AttributedText(),
-            AttributedText(),
+            AttributedText('foo'),
+            AttributedText('bar'),
           ],
         ),
         ParagraphNode(id: Editor.createNodeId(), text: AttributedText()),
