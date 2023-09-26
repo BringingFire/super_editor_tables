@@ -1,0 +1,37 @@
+name: example
+description: A new Flutter project.
+publish_to: 'none'
+
+version: 1.0.0
+
+environment:
+  sdk: '>=3.1.2 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  super_editor:
+    git:
+      url: https://github.com/superlistapp/super_editor.git
+      path: super_editor
+      ref: stable
+  super_editor_tables:
+    path: ../
+
+dev_dependencies:
+  flutter_lints: ^2.0.0
+
+dependency_overrides:
+  attributed_text:
+    git:
+      url: https://github.com/superlistapp/super_editor.git
+      path: attributed_text
+      ref: stable
+  super_text_layout:
+    git:
+      url: https://github.com/superlistapp/super_editor.git
+      path: super_text_layout
+      ref: stable
+
+flutter:
+  uses-material-design: true
